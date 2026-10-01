@@ -1,0 +1,34 @@
+{
+  "$comment": "复制为 .agent-cli/config.json（项目级）或 ~/.agent-cli/config.json（全局），按需删除注释字段",
+  "baseUrl": "http://127.0.0.1:31415/v1",
+  "models": ["auto", "glm-5.3-flash", "deepseek-v4-flash"],
+  "temperature": 0.3,
+  "maxSteps": 25,
+  "retries": 3,
+  "timeoutMs": 180000,
+  "stream": true,
+  "maxContextChars": 180000,
+  "keepRecentTurns": 6,
+  "permission": {
+    "mode": "smart",
+    "allow": [
+      "list_dir",
+      "read_file",
+      "find_files",
+      "search_text",
+      "run_command:git status*",
+      "run_command:git diff*",
+      "run_command:dir*",
+      "run_command:node -v*"
+    ],
+    "deny": [
+      "run_command:*format *",
+      "run_command:*vssadmin*"
+    ]
+  },
+  "tools": {
+    "enableFetch": true,
+    "commandTimeoutMs": 60000,
+    "maxOutputChars": 30000
+  }
+}

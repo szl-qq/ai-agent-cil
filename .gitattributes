@@ -1,0 +1,5 @@
+# 统一使用 LF 行尾，避免跨平台协作时把整个文件标记为已修改
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary

@@ -1,0 +1,13 @@
+# 密钥与凭据（勿入库，泄漏即失效）
+agent.key
+.env
+.env.*
+
+# 运行时数据：会话记录、审计日志、历史
+.agent-cli/
+
+node_modules/
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
