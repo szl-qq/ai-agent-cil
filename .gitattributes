@@ -1,5 +1,12 @@
-# 统一使用 LF 行尾，避免跨平台协作时把整个文件标记为已修改
+# 源码统一 LF 行尾，避免跨平台协作时把整个文件标记为已修改
 * text=auto eol=lf
+
+# Windows 批处理必须保持 CRLF。
+# cmd.exe 对 LF 行尾的多行块（if/for 括号块）和 :label 跳转解析不可靠，
+# 而 crlf 会被下面的规则覆盖，所以这两条必须在 * 之后声明。
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
 *.png binary
 *.jpg binary
 *.ico binary

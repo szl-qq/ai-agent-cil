@@ -6,16 +6,31 @@
 
 ## 快速开始
 
+### 方式一：全局命令（推荐）
+
+双击 `install-cli.cmd`，**新开**一个终端，之后在任意目录都能直接用：
+
 ```bash
-# 交互模式
-node bin/agent.mjs
-
-# 单次执行
-node bin/agent.mjs -p "列出当前目录并总结项目结构"
-
-# Windows 双击启动
-agent-cli.bat
+cli               # 交互模式
+cli -p "任务"     # 单次执行
+cli --help        # 查看全部参数
+cil               # 同上（防止输错的别名）
 ```
+
+卸载：双击 `uninstall-cli.cmd`（只移除 PATH 项，项目文件不动）。
+
+它只把本项目的 `shim/` 目录加到**用户级** PATH——不需要管理员权限，不碰系统 PATH，不影响其它软件。安装脚本用 .NET 的 `SetEnvironmentVariable` 写入，而不是 `setx`：后者会截断超过 1024 字符的值，且用 `setx PATH "%PATH%"` 时会把系统 PATH 悄悄并进用户 PATH——这两种都是常见的 PATH 损坏原因。
+
+### 方式二：不走 PATH
+
+```bash
+node bin/agent.mjs              # 交互模式
+node bin/agent.mjs -p "列出当前目录并总结项目结构"
+```
+
+Windows 也可以直接双击项目根的 `agent-cli.bat`。
+
+已装 npm 的话，还有第三种：`npm link`（由 npm 把 `bin` 字段里的 `cli` / `cil` / `agent` 链到全局目录，不需要手改 PATH）。
 
 首次使用需配置接口地址与密钥，任选其一：
 
@@ -23,6 +38,13 @@ agent-cli.bat
 2. 密钥文件：程序根目录或工作区根目录的 `agent.key`
 3. 命令行：`--base-url` / `--api-key`
 4. 配置文件：`./.agent-cli/config.json`（项目级）或 `~/.agent-cli/config.json`（全局级）
+
+**关于工作区**：Agent 的工作区就是**启动时的当前目录**。用全局 `cli` 时，先 `cd` 到目标项目再执行，文件读写与命令执行都以该目录为基准；会话记录与审计日志也会写在该目录的 `.agent-cli/` 下。
+
+```bash
+cd D:\some-project
+cli                       # 工作区 = D:\some-project
+```
 
 ## 特性
 
@@ -111,6 +133,11 @@ description: 一句话说明何时使用本技能（模型据此决定是否加�
 
 ```
 agent-cli/
+  install-cli.cmd        把 shim/ 注册进用户 PATH（双击即可）
+  uninstall-cli.cmd      从用户 PATH 移除
+  agent-cli.bat          双击启动（不依赖 PATH）
+  shim/cli.cmd           全局命令入口，供 PATH 调用
+  shim/cil.cmd           别名，转发给 cli.cmd
   bin/agent.mjs          入口：装配依赖、交互循环、中断处理
   src/config.mjs         配置加载与参数解析
   src/llm.mjs            SSE 流式解析、工具调用增量拼接、重试与降级、空闲看门狗
@@ -141,3 +168,4 @@ node test/smoke.mjs
 - 若宿主环境存在程序黑名单（如企业安全策略禁用 `wmic`），被拦截的命令会如实报错，属预期行为。
 - GUI 自动化依赖目标窗口取得前台焦点。Windows 有"前台锁定"保护，抢占会被间歇性拒绝，程序会自动重试；若持续失败会明确报错并要求先手动点击该窗口一次，而不是把按键打进无关窗口。
 - `send_keys` 仅在 Windows 上注册（依赖 Win32 `SendInput`）。
+- 全局 `cli` 命令依赖 PATH 里的绝对路径。**移动或重命名项目目录后需要重新运行 `install-cli.cmd`**；在那之前 `cli` 会失效（旧的 PATH 项指向已不存在的路径）。`uninstall-cli.cmd` 可以清掉遗留项。

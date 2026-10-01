@@ -1,11 +1,13 @@
 {
   "name": "agent-cli",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "private": true,
   "type": "module",
   "description": "本机 CLI Agent：OpenAI 兼容接口 + 流式输出 + 工具调用 + 分级权限",
   "bin": {
-    "agent": "./bin/agent.mjs"
+    "agent": "./bin/agent.mjs",
+    "cli": "./bin/agent.mjs",
+    "cil": "./bin/agent.mjs"
   },
   "engines": {
     "node": ">=18.17"
