@@ -133,7 +133,16 @@ export function createMarkdown(useAnsi) {
 }
 
 // ---------- 流式输出 ----------
-/** 行内标记是否已成对闭合。只有成对时才允许把「尚未换行」的内容提前输出：
+/** 行首可能是块级结构（标题/列表/引用/围栏/分隔线）的判定。
+ *
+ *  这类样式**必须整行**才能确定：`## 当` 若被提前渲染，前半段会被当成标题、
+ *  只把「当」着色成青色，随后到达的「前天气」只能另起一段渲染 —— 同一行就会
+ *  一半有色一半没有；`- 温度` 同理，`-` 先被当普通文本吐出后，后半段就不再是列表。
+ *  所以只要行首落在这些字符上，就按住不动，等换行（或触发长度兜底）。 */
+const RE_BLOCK_START = /^\s*(?:#{1,6}|[-*+]|\d+[.)]|>|`{3,}|~{3,})/;
+
+/** 行内标记是否已成对闭合。**只覆盖行内标记**（粗体/斜体/代码/删除线），
+ *  块级结构另由 RE_BLOCK_START 把关。成对时才允许把「尚未换行」的内容提前输出：
  *  `**加` 这种半截标记一旦脱口而出，就会被当作普通文本渲染、把星号漏给用户——
  *  而消除星号正是本功能的目的。未成对时宁可多等一会儿。 */
 function markersBalanced(s) {
@@ -170,10 +179,11 @@ export class StreamPrinter {
       this.buffer = this.buffer.slice(i + 1);
       process.stdout.write(this.md.render(line) + "\n");
     }
-    // ② 剩下的内容还没换行（模型常把短句一次吐完，没有换行）。此时若标记已闭合就
-    //    立刻输出，保留逐字流式的手感；否则留着等后续 chunk 补全。
+    // ② 剩下的内容还没换行（模型常把短句一次吐完，没有换行）。此时若行内标记已闭合、
+    //    且行首不涉及块级结构，就立刻输出，保留逐字流式的手感；否则按住等整行。
     //    ③ 单行超长时无条件输出，避免整段话长时间不显示。
-    if (this.buffer && (this.buffer.length > 400 || markersBalanced(this.buffer))) {
+    const flushable = !RE_BLOCK_START.test(this.buffer) && markersBalanced(this.buffer);
+    if (this.buffer && (this.buffer.length > 400 || flushable)) {
       process.stdout.write(this.md.render(this.buffer));
       this.buffer = "";
     }

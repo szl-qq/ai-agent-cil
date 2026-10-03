@@ -440,10 +440,10 @@ await test("markdown：流式分块不提前吐出半截标记", () => {
     sp.write("**加");
     assert.ok(!captured.join("").includes("加"), "半截标记被提前输出");
     sp.write("粗**");
+    sp.end();  // 必须先 end：内容仍在缓冲区，end() 时才真正落盘
     const done = captured.join("");
     assert.ok(done.includes("\x1b[1m加粗\x1b[22m"), "跨块粗体未正确合并");
     assert.ok(!done.includes("**"), "输出中残留星号");
-    sp.end();
   } finally {
     process.stdout.write = orig;
   }
@@ -460,6 +460,28 @@ await test("markdown：无标记内容立即输出（保留流式手感）", () 
     sp.end();
   } finally {
     process.stdout.write = orig;
+  }
+});
+
+await test("markdown：块级结构必须整行渲染（小分块下不漏 # 和 -）", () => {
+  // SSE 的 chunk 可能小到 1~3 个字符（中文尤其如此）。若 `##` 被当作「可提前输出」
+  // 直接吐出，后续内容就无法再被识别为标题——用户会看到裸露的 ## 和未转换的列表。
+  const text = "## 标题\n- 列表项\n";
+  const orig = process.stdout.write;
+  for (const size of [1, 2, 3, 5, 11]) {
+    const captured = [];
+    process.stdout.write = (s) => { captured.push(String(s)); return true; };
+    try {
+      const sp = new StreamPrinter({ ansi: true });
+      for (let i = 0; i < text.length; i += size) sp.write(text.slice(i, i + size));
+      sp.end();
+    } finally {
+      process.stdout.write = orig;
+    }
+    const out = captured.join("");
+    assert.ok(!out.includes("#"), `chunk=${size} 时标题残留 #: ${JSON.stringify(out)}`);
+    assert.ok(!/^- /m.test(out), `chunk=${size} 时列表未转换: ${JSON.stringify(out)}`);
+    assert.ok(out.includes("标题") && out.includes("列表项"), `chunk=${size} 时内容丢失`);
   }
 });
 
