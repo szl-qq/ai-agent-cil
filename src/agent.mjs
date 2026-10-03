@@ -134,7 +134,7 @@ export class Agent {
       steps++;
       const controller = new AbortController();
       this.abortController = controller;
-      const printer = new ui.StreamPrinter();
+      const printer = new ui.StreamPrinter({ markdown: this.cfg.markdown !== false });
 
       let result;
       try {

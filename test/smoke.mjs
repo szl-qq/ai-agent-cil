@@ -14,6 +14,7 @@ import { Session, AuditLog } from "../src/session.mjs";
 import { estimateTokens } from "../src/llm.mjs";
 import { loadConfig } from "../src/config.mjs";
 import { Agent } from "../src/agent.mjs";
+import { createMarkdown, StreamPrinter } from "../src/ui.mjs";
 
 const results = [];
 let failed = 0;
@@ -391,6 +392,75 @@ await test("截断提示：明确告知后面还有多少字符（回归修复�
   assert.ok(out.includes("还有 400 字符未显示"), "未告知剩余字符数: " + out.slice(-90));
   assert.ok(out.includes("请加大 max_chars"), "缺少自定义提示语");
   assert.strictEqual(truncate("short", 100), "short", "未超限时不应改动");
+});
+
+// ---------- Markdown 渲染 ----------
+await test("markdown：行内标记渲染为终端样式", () => {
+  const md = createMarkdown(true);
+  assert.strictEqual(md.render("**222**"), "\x1b[1m222\x1b[22m", "粗体未生效");
+  assert.strictEqual(md.render("`c`"), "\x1b[36mc\x1b[39m", "行内代码未着色");
+  assert.ok(!md.render("**x**").includes("\x1b[0m"), "使用了 \\x1b[0m 作关闭码，嵌套会被提前关掉");
+  assert.ok(!md.render("# t").startsWith("#"), "标题未去掉 # 标记");
+});
+
+await test("markdown：代码内的标记不被二次解析", () => {
+  const md = createMarkdown(true);
+  assert.strictEqual(md.render("`**x**`"), "\x1b[36m**x**\x1b[39m", "代码内容被当成强调解析了");
+  assert.strictEqual(md.render("`a*b`"), "\x1b[36ma*b\x1b[39m");
+});
+
+await test("markdown：块级结构转换", () => {
+  const md = createMarkdown(true);
+  const strip = (s) => s.replace(/\x1b\[[0-9;]*m/g, "");
+  assert.ok(strip(md.render("- a")).includes("• a"), "无序列表未转圆点");
+  assert.ok(strip(md.render("> a")).includes("│ a"), "引用未转竖线");
+  assert.ok(strip(md.render("1. a")).includes("1. a"), "有序列表序号丢失");
+  assert.ok(md.render("---").includes("─"), "分割线未转换");
+  assert.ok(strip(md.render("- [x] d")).includes("☑ d"), "任务列表未转复选框");
+});
+
+await test("markdown：未闭合标记保持原样（不漏半个星号）", () => {
+  const md = createMarkdown(true);
+  assert.strictEqual(md.render("**abc"), "**abc");
+  assert.strictEqual(md.render("*斜"), "*斜");
+});
+
+await test("markdown：非 ANSI 时整行原样透传（重定向日志无损）", () => {
+  const md = createMarkdown(false);
+  const line = "**粗体** 与 `代码` 与 [t](https://a.io)";
+  assert.strictEqual(md.render(line), line, "非 ANSI 下内容被改写了");
+});
+
+await test("markdown：流式分块不提前吐出半截标记", () => {
+  const captured = [];
+  const orig = process.stdout.write;
+  process.stdout.write = (s) => { captured.push(String(s)); return true; };
+  try {
+    const sp = new StreamPrinter({ ansi: true });
+    sp.write("**加");
+    assert.ok(!captured.join("").includes("加"), "半截标记被提前输出");
+    sp.write("粗**");
+    const done = captured.join("");
+    assert.ok(done.includes("\x1b[1m加粗\x1b[22m"), "跨块粗体未正确合并");
+    assert.ok(!done.includes("**"), "输出中残留星号");
+    sp.end();
+  } finally {
+    process.stdout.write = orig;
+  }
+});
+
+await test("markdown：无标记内容立即输出（保留流式手感）", () => {
+  const captured = [];
+  const orig = process.stdout.write;
+  process.stdout.write = (s) => { captured.push(String(s)); return true; };
+  try {
+    const sp = new StreamPrinter({ ansi: true });
+    sp.write("你好");
+    assert.ok(captured.join("").includes("你好"), "无标记内容被缓冲，失去逐字流式效果");
+    sp.end();
+  } finally {
+    process.stdout.write = orig;
+  }
 });
 
 // ---------- 其他 ----------

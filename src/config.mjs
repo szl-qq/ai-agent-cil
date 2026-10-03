@@ -16,6 +16,7 @@ export const DEFAULTS = {
   timeoutMs: 180000,
   idleTimeoutMs: 90000,          // 流式期间无任何数据的判定阈值，触发中断并进入重试/降级
   stream: true,
+  markdown: true,                // 把模型输出的 Markdown 渲染成终端样式（--no-markdown 关闭）
   maxContextChars: 180000,       // 超过则触发上下文压缩
   keepRecentTurns: 6,            // 压缩时保留最近 N 轮
   permission: {
@@ -70,7 +71,7 @@ export function parseArgs(argv = process.argv.slice(2)) {
   };
   // --resume / --continue 的值可选：`--resume` 恢复最近会话，`--resume <名称>` 恢复指定会话
   const optionalValue = { "--resume": "resume", "--continue": "continue", "-c": "continue" };
-  const flags = { "--yolo": "yolo", "--strict": "strict", "--no-stream": "noStream", "--json": "json", "--verbose": "verbose", "--list-sessions": "listSessions", "--help": "help", "-h": "help", "--version": "version", "--no-color": "noColor" };
+  const flags = { "--yolo": "yolo", "--strict": "strict", "--no-stream": "noStream", "--json": "json", "--verbose": "verbose", "--list-sessions": "listSessions", "--help": "help", "-h": "help", "--version": "version", "--no-color": "noColor", "--no-markdown": "noMarkdown" };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (flags[a]) { opts[flags[a]] = true; continue; }
@@ -138,6 +139,7 @@ export function loadConfig(argv = process.argv.slice(2)) {
   }
   if (cli.noStream) cfg.stream = false;
   if (cli.noColor) cfg.color = false;
+  if (cli.noMarkdown) cfg.markdown = false;
   if (cli.yolo) cfg.permission.mode = "yolo";
   if (cli.strict) cfg.permission.mode = "strict";
 

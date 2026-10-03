@@ -47,6 +47,7 @@ function printHelp() {
   --strict            所有写操作都需确认
   --no-stream         关闭流式输出
   --no-color          关闭彩色输出
+  --no-markdown       不渲染 Markdown，输出原始文本（便于重定向到日志）
   --verbose           输出详细日志
   -h, --help          帮助
 

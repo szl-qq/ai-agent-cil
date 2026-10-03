@@ -54,12 +54,134 @@ export function section(title, body) {
   console.log(`${t.bold(title)}\n${body}`);
 }
 
+// ---------- Markdown 渲染 ----------
+/** 把模型输出的 Markdown 转成终端样式（**粗体**、`代码`、# 标题、- 列表…）。
+ *
+ *  两个必须遵守的约束：
+ *   ① 只用「精确关闭码」——\x1b[22m 关粗体、\x1b[23m 关斜体、\x1b[39m 关前景色。
+ *      绝不用 \x1b[0m：它会连同外层样式一起重置，导致「引用行里的粗体一结束、
+ *      后面整段都掉色」这类嵌套失效。
+ *   ② 非 TTY / NO_COLOR / --no-color 时**整行原样透传**，不做任何改写。
+ *      终端风格全靠 ANSI 承载，没有 ANSI 就不存在"渲染"，此时保留原文才无损：
+ *      重定向到日志后仍可 grep、可复制、可继续处理。
+ */
+export function createMarkdown(useAnsi) {
+  if (!useAnsi) return { render: (line) => String(line) };
+
+  const w = (open, close) => (s) => `\x1b[${open}m${s}\x1b[${close}m`;
+  const bold = w(1, 22);
+  const italic = w(3, 23);
+  const strike = w(9, 29);
+  const cyan = w(36, 39);
+  const green = w(32, 39);
+  const gray = w(90, 39);
+
+  const RE_FENCE = /^\s*(?:```|~~~)/;
+  const RE_HEADING = /^(#{1,6})\s+(.*)$/;
+  const RE_RULE = /^\s*([-*_])(?:\s*\1){2,}\s*$/;
+  const RE_QUOTE = /^(\s*)>\s?(.*)$/;
+  const RE_TASK = /^(\s*)[-*+]\s+\[([ xX])\]\s+(.*)$/;
+  const RE_UL = /^(\s*)[-*+]\s+(.*)$/;
+  const RE_OL = /^(\s*)(\d+)([.)])\s+(.*)$/;
+
+  /** 行内标记。先把行内代码摘出来用占位符保护、最后才还原，
+   *  否则代码里的 `*` `_` 会被当成强调标记二次解析。 */
+  function inline(src) {
+    const codes = [];
+    let s = String(src).replace(/`([^`\n]+)`/g, (_, c) => `\u0000${codes.push(c) - 1}\u0000`);
+    s = s.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (_, txt, url) => `${txt} ${gray(url)}`);
+    s = s.replace(/\*\*\*([^*\n]+)\*\*\*/g, (_, x) => bold(italic(x)));
+    s = s.replace(/\*\*([^*\n]+)\*\*/g, (_, x) => bold(x));
+    s = s.replace(/__([^_\n]+)__/g, (_, x) => bold(x));
+    s = s.replace(/(^|[\s(（])\*([^*\n]+)\*/g, (_, p, x) => p + italic(x));
+    s = s.replace(/(^|[\s(（])_([^_\n]+)_/g, (_, p, x) => p + italic(x));
+    s = s.replace(/~~([^~\n]+)~~/g, (_, x) => strike(x));
+    return s.replace(/\u0000(\d+)\u0000/g, (_, i) => cyan(codes[Number(i)]));
+  }
+
+  let inCode = false;
+  return {
+    /** 渲染一行（不含换行符）。只改样式、不增删行——增删行会打乱流式输出的节奏，
+     *  也会让用户复制到的内容与看到的不一致。 */
+    render(line) {
+      const raw = String(line);
+      if (RE_FENCE.test(raw)) { inCode = !inCode; return gray(raw); }
+      if (inCode) return cyan(raw);
+
+      const h = raw.match(RE_HEADING);
+      if (h) {
+        const text = inline(h[2]);
+        return h[1].length <= 2 ? `\x1b[1;36m${text}\x1b[39m\x1b[22m` : bold(text);
+      }
+      if (RE_RULE.test(raw)) return gray("─".repeat(28));
+
+      const q = raw.match(RE_QUOTE);
+      if (q) return gray("│ ") + inline(q[2]);
+
+      const task = raw.match(RE_TASK);
+      if (task) return `${task[1]}${task[2].trim() ? green("☑") : gray("☐")} ${inline(task[3])}`;
+
+      const ul = raw.match(RE_UL);
+      if (ul) return `${ul[1]}${gray("•")} ${inline(ul[2])}`;
+
+      const ol = raw.match(RE_OL);
+      if (ol) return `${ol[1]}${bold(ol[2] + ol[3])} ${inline(ol[4])}`;
+
+      return inline(raw);
+    },
+  };
+}
+
 // ---------- 流式输出 ----------
+/** 行内标记是否已成对闭合。只有成对时才允许把「尚未换行」的内容提前输出：
+ *  `**加` 这种半截标记一旦脱口而出，就会被当作普通文本渲染、把星号漏给用户——
+ *  而消除星号正是本功能的目的。未成对时宁可多等一会儿。 */
+function markersBalanced(s) {
+  const count = (re, str) => (str.match(re) || []).length;
+  const even = (n) => n % 2 === 0;
+  return even(count(/\*\*/g, s))
+      && even(count(/\*/g, s.replace(/\*\*/g, "")))
+      && even(count(/`/g, s))
+      && even(count(/~/g, s))
+      && even(count(/_/g, s));
+}
+
 export class StreamPrinter {
-  constructor() { this.started = false; this.chars = 0; }
+  /** markdown=false 时原样透传；ansi 默认跟随主题（--no-color / 非 TTY 下为 false） */
+  constructor({ markdown = true, ansi = t.on } = {}) {
+    this.started = false;
+    this.chars = 0;
+    this.buffer = "";
+    this.md = markdown ? createMarkdown(ansi) : null;
+  }
   begin() { if (!this.started) { process.stdout.write(`${t.bMagenta(ICON.agent)} `); this.started = true; } }
-  write(chunk) { this.begin(); process.stdout.write(chunk); this.chars += chunk.length; }
-  end() { if (this.started) { process.stdout.write("\n"); this.started = false; } }
+  write(chunk) {
+    this.begin();
+    const text = String(chunk);
+    this.chars += text.length;
+    if (!this.md) { process.stdout.write(text); return; }
+
+    this.buffer += text;
+    // ① 拿到完整的一行就立即渲染。行内标记（**粗体**、`代码`）可能被切成两个 chunk
+    //    先后到达，按整行渲染才能保证标记成对。
+    let i;
+    while ((i = this.buffer.indexOf("\n")) >= 0) {
+      const line = this.buffer.slice(0, i);
+      this.buffer = this.buffer.slice(i + 1);
+      process.stdout.write(this.md.render(line) + "\n");
+    }
+    // ② 剩下的内容还没换行（模型常把短句一次吐完，没有换行）。此时若标记已闭合就
+    //    立刻输出，保留逐字流式的手感；否则留着等后续 chunk 补全。
+    //    ③ 单行超长时无条件输出，避免整段话长时间不显示。
+    if (this.buffer && (this.buffer.length > 400 || markersBalanced(this.buffer))) {
+      process.stdout.write(this.md.render(this.buffer));
+      this.buffer = "";
+    }
+  }
+  end() {
+    if (this.md && this.buffer) { process.stdout.write(this.md.render(this.buffer)); this.buffer = ""; }
+    if (this.started) { process.stdout.write("\n"); this.started = false; }
+  }
 }
 
 // ---------- Spinner ----------
